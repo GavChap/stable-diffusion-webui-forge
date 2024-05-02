@@ -6,6 +6,7 @@ from ldm_patched.k_diffusion import sampling as k_diffusion_sampling
 from ldm_patched.unipc import uni_pc
 import torch
 import collections
+import numpy as np
 from ldm_patched.modules import model_management
 import math
 
@@ -336,6 +337,30 @@ def simple_scheduler(model, steps):
     sigs += [0.0]
     return torch.FloatTensor(sigs)
 
+def loglinear_interp(t_steps, num_steps):
+    """
+    Performs log-linear interpolation of a given array of decreasing numbers.
+    """
+    xs = np.linspace(0, 1, len(t_steps))
+    ys = np.log(t_steps[::-1])
+
+    new_xs = np.linspace(0, 1, num_steps)
+    new_ys = np.interp(new_xs, xs, ys)
+
+    interped_ys = np.exp(new_ys)[::-1].copy()
+    return interped_ys
+def ays_scheduler(model, steps):
+    print("HELLO")
+    NOISE_LEVELS = [14.6146412293, 6.3184485287, 3.7681790315, 2.1811480769, 1.3405244945, 0.8620721141, 0.5550693289,
+                    0.3798540708, 0.2332364134, 0.1114188177, 0.0291671582]
+
+    sigmas = NOISE_LEVELS[:]
+    if (steps + 1) != len(sigmas):
+        sigmas = loglinear_interp(sigmas, steps + 1)
+
+    sigmas[-1] = 0
+    return torch.FloatTensor(sigmas)
+
 def ddim_scheduler(model, steps):
     s = model.model_sampling
     sigs = []
@@ -662,7 +687,7 @@ def sample(model, noise, positive, negative, cfg, device, sampler, sigmas, model
     samples = sampler.sample(model_wrap, sigmas, extra_args, callback, noise, latent_image, denoise_mask, disable_pbar)
     return model.process_latent_out(samples.to(torch.float32))
 
-SCHEDULER_NAMES = ["normal", "karras", "exponential", "sgm_uniform", "simple", "ddim_uniform"]
+SCHEDULER_NAMES = ["normal", "karras", "exponential", "sgm_uniform", "simple", "ddim_uniform", "ays"]
 SAMPLER_NAMES = KSAMPLER_NAMES + ["ddim", "uni_pc", "uni_pc_bh2"]
 
 def calculate_sigmas_scheduler(model, scheduler_name, steps):
@@ -678,8 +703,11 @@ def calculate_sigmas_scheduler(model, scheduler_name, steps):
         sigmas = ddim_scheduler(model, steps)
     elif scheduler_name == "sgm_uniform":
         sigmas = normal_scheduler(model, steps, sgm=True)
+    elif scheduler_name == "ays":
+        sigmas = ays_scheduler(model, steps)
     else:
         print("error invalid scheduler", scheduler_name)
+    print(scheduler_name)
     return sigmas
 
 def sampler_object(name):
